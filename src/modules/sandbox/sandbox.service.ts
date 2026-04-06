@@ -1,7 +1,12 @@
-import { execSync } from 'child_process';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import prisma from '../../db/client';
+import { createLogger } from '../../lib/logger';
+
+const execAsync = promisify(exec);
+const log = createLogger('sandbox');
 
 const SANDBOXES_DIR = path.resolve(process.cwd(), 'sandboxes');
 const MAX_KEPT_SANDBOXES = 10;
@@ -21,27 +26,26 @@ export class SandboxService {
     fs.mkdirSync(sandboxPath, { recursive: true });
 
     const repoPath = run.project.repoPath;
+    log.info(`Copying project from ${repoPath}`, runId);
 
     // Ensure trailing slash for rsync source
     const source = repoPath.endsWith('/') ? repoPath : `${repoPath}/`;
 
-    execSync(
-      `rsync -a --exclude=node_modules --exclude=.git/objects "${source}" "${sandboxPath}/"`,
-      { stdio: 'pipe', timeout: 120_000 }
+    await execAsync(
+      `rsync -a --exclude=node_modules --exclude=.git --exclude=sandboxes --exclude=artifacts "${source}" "${sandboxPath}/"`,
+      { timeout: 120_000 }
     );
+    log.info(`rsync complete → ${sandboxPath}`, runId);
 
-    // Initialize git in sandbox if .git exists in source
-    const sourceGit = path.join(repoPath, '.git');
-    if (fs.existsSync(sourceGit)) {
-      try {
-        execSync('git init && git add -A && git commit -m "sandbox baseline" --allow-empty', {
-          cwd: sandboxPath,
-          stdio: 'pipe',
-          timeout: 30_000,
-        });
-      } catch {
-        // git init may fail in some environments — non-fatal
-      }
+    // Initialize a clean git repo in sandbox for diff tracking
+    try {
+      await execAsync('git init && git add -A && git commit -m "sandbox baseline" --allow-empty', {
+        cwd: sandboxPath,
+        timeout: 30_000,
+      });
+      log.info('Git baseline commit created in sandbox', runId);
+    } catch {
+      log.warn('Git init in sandbox failed (non-fatal)', runId);
     }
 
     await prisma.localRun.update({
@@ -58,7 +62,8 @@ export class SandboxService {
   async remove(runId: string): Promise<void> {
     const sandboxPath = path.join(SANDBOXES_DIR, runId);
     if (fs.existsSync(sandboxPath)) {
-      fs.rmSync(sandboxPath, { recursive: true, force: true });
+      await execAsync(`rm -rf ${JSON.stringify(sandboxPath)}`, { timeout: 30_000 });
+      log.info('Sandbox removed', runId);
     }
   }
 
@@ -80,6 +85,9 @@ export class SandboxService {
     for (const entry of entries.slice(MAX_KEPT_SANDBOXES)) {
       fs.rmSync(entry.fullPath, { recursive: true, force: true });
       removed++;
+    }
+    if (removed > 0) {
+      log.info(`Cleaned up ${removed} old sandbox(es)`);
     }
     return removed;
   }

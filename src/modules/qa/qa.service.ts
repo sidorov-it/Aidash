@@ -2,6 +2,9 @@ import { exec } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import prisma from '../../db/client';
+import { createLogger } from '../../lib/logger';
+
+const log = createLogger('qa');
 
 const QA_ARTIFACTS_DIR = path.resolve(process.cwd(), 'artifacts', 'qa');
 const DEFAULT_TIMEOUT_MS = 300_000; // 5 min
@@ -66,14 +69,17 @@ export class QaService {
     // Install dependencies in sandbox first
     const pm = run.project.packageManager || 'npm';
     const installCmd = pm === 'yarn' ? 'yarn install --frozen-lockfile' : `${pm} install`;
+    log.info(`Installing dependencies (${pm})...`, runId);
     try {
       await runCommand(installCmd, run.sandboxPath, 120_000);
+      log.info('Dependencies installed', runId);
     } catch {
-      // non-fatal — dependencies may already exist
+      log.warn('Dependency install failed (non-fatal)', runId);
     }
 
     // Run unit tests
     if (run.project.testCommand) {
+      log.info(`Running unit tests: ${run.project.testCommand}`, runId);
       const result = await this.executeCheck(
         runId,
         'unit',
@@ -81,11 +87,15 @@ export class QaService {
         run.sandboxPath,
         artifactDir
       );
+      log.info(`Unit tests: ${result.status} (exit ${result.exitCode})`, runId);
       results.push(result);
+    } else {
+      log.info('No unit test command configured, skipping', runId);
     }
 
     // Run e2e tests
     if (run.project.e2eCommand) {
+      log.info(`Running e2e tests: ${run.project.e2eCommand}`, runId);
       const result = await this.executeCheck(
         runId,
         'playwright',
@@ -93,7 +103,10 @@ export class QaService {
         run.sandboxPath,
         artifactDir
       );
+      log.info(`E2E tests: ${result.status} (exit ${result.exitCode})`, runId);
       results.push(result);
+    } else {
+      log.info('No e2e test command configured, skipping', runId);
     }
 
     // Update patch status based on QA results

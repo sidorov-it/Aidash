@@ -2,6 +2,9 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import prisma from '../../db/client';
+import { createLogger } from '../../lib/logger';
+
+const log = createLogger('patch');
 
 const ARTIFACTS_DIR = path.resolve(process.cwd(), 'artifacts', 'patches');
 
@@ -23,6 +26,7 @@ export class PatchService {
     const patchPath = path.join(ARTIFACTS_DIR, `${runId}.patch`);
 
     // Generate diff inside sandbox
+    log.info('Running git diff in sandbox...', runId);
     let diff = '';
     try {
       execSync('git add -A', { cwd: run.sandboxPath, stdio: 'pipe' });
@@ -32,7 +36,7 @@ export class PatchService {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (err: any) {
-      // Fallback: diff between repo and sandbox using diff command
+      log.warn('git diff failed, falling back to unix diff', runId);
       diff = '';
       try {
         diff = execSync(
@@ -46,6 +50,7 @@ export class PatchService {
     }
 
     fs.writeFileSync(patchPath, diff);
+    log.info(`Patch saved to ${patchPath} (${(diff.length / 1024).toFixed(1)} KB)`, runId);
 
     // Extract changed file paths
     const changedFiles = diff

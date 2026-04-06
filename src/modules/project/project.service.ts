@@ -1,3 +1,5 @@
+import { readFile } from 'fs/promises';
+import { join } from 'path';
 import prisma from '../../db/client';
 
 export interface CreateProjectInput {
@@ -65,6 +67,18 @@ export class ProjectService {
 
     const project = await prisma.localProject.update({ where: { id }, data });
     return { ...project, devCommands: JSON.parse(project.devCommands) };
+  }
+
+  async getScripts(id: string): Promise<Record<string, string>> {
+    const project = await prisma.localProject.findUnique({ where: { id } });
+    if (!project) return {};
+    try {
+      const raw = await readFile(join(project.repoPath, 'package.json'), 'utf-8');
+      const pkg = JSON.parse(raw);
+      return pkg.scripts ?? {};
+    } catch {
+      return {};
+    }
   }
 
   async delete(id: string) {

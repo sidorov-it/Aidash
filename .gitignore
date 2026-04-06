@@ -6,3 +6,5 @@ dist/
 *.db-journal
 artifacts/
 sandboxes/
+ui/dist/
+.DS_Store
