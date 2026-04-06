@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model LocalProject {
+  id             String         @id @default(uuid())
+  name           String
+  repoPath       String
+  packageManager String         @default("npm") // npm | pnpm | yarn
+  devCommands    String         @default("[]") // JSON array of strings
+  testCommand    String?
+  e2eCommand     String?
+  defaultBranch  String         @default("main")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  runs           LocalRun[]
+  processes      LocalProcess[]
+}
+
+model LocalRun {
+  id           String            @id @default(uuid())
+  projectId    String
+  project      LocalProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  taskId       String?
+  taskPrompt   String?
+  mode         String            @default("AUTONOM") // AUTONOM | QA | INTAKE
+  status       String            @default("queued") // queued | running | qa | waiting_review | done | failed | canceled
+  sandboxPath  String?
+  agentProvider String?          // claude | codex
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  patches      PatchSet[]
+  verifications VerificationRun[]
+}
+
+model LocalProcess {
+  id        String       @id @default(uuid())
+  projectId String
+  project   LocalProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name      String
+  command   String
+  status    String       @default("stopped") // running | stopped | error
+  pid       Int?
+  logPath   String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model PatchSet {
+  id        String   @id @default(uuid())
+  runId     String
+  run       LocalRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  patchPath String
+  status    String   @default("draft") // draft | qa_passed | approved | applied
+  changedFiles String @default("[]") // JSON array of changed file paths
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model VerificationRun {
+  id         String   @id @default(uuid())
+  runId      String
+  run        LocalRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  type       String   // unit | playwright
+  status     String   @default("running") // running | passed | failed
+  reportPath String?
+  stdout     String?
+  stderr     String?
+  exitCode   Int?
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
